@@ -1,0 +1,333 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Global Space Launches 1957–2022</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #050510; color: #fff; font-family: Arial, sans-serif; overflow: hidden; }
+  #ui {
+    position: absolute; top: 20px; left: 20px;
+    background: rgba(0,0,0,0.75); padding: 16px; border-radius: 10px;
+    max-width: 260px; border: 1px solid rgba(255,255,255,0.1);
+  }
+  #ui h2 { font-size: 13px; color: #aaa; margin-bottom: 12px; line-height: 1.5; }
+  .filter-group { margin-bottom: 12px; }
+  .filter-group label { font-size: 10px; color: #666; display: block; margin-bottom: 5px; text-transform: uppercase; letter-spacing: 0.8px; }
+  .btn-group { display: flex; flex-wrap: wrap; gap: 4px; }
+  .btn { padding: 4px 9px; font-size: 11px; border-radius: 4px; border: 1px solid rgba(255,255,255,0.15); background: rgba(255,255,255,0.04); color: #aaa; cursor: pointer; transition: all 0.2s; }
+  .btn.active { background: rgba(255,255,255,0.18); color: #fff; border-color: rgba(255,255,255,0.4); }
+  .btn:hover { background: rgba(255,255,255,0.12); }
+  #legend { position: absolute; bottom: 20px; left: 20px; background: rgba(0,0,0,0.75); padding: 12px 16px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.1); }
+  #legend h3 { font-size: 10px; color: #666; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.8px; }
+  .legend-item { display: flex; align-items: center; gap: 8px; margin-bottom: 5px; font-size: 11px; color: #aaa; }
+  .legend-dot { border-radius: 50%; flex-shrink: 0; }
+  #tooltip { position: absolute; background: rgba(5,5,20,0.92); padding: 10px 14px; border-radius: 8px; font-size: 12px; pointer-events: none; display: none; border: 1px solid rgba(255,255,255,0.15); max-width: 220px; }
+  #tooltip strong { display: block; margin-bottom: 4px; color: #fff; font-size: 13px; }
+  #tooltip span { color: #aaa; line-height: 1.7; display: block; }
+  #info { position: absolute; top: 20px; right: 20px; background: rgba(0,0,0,0.65); padding: 10px 14px; border-radius: 8px; font-size: 11px; color: #666; border: 1px solid rgba(255,255,255,0.08); line-height: 1.9; }
+  #debug { position: absolute; bottom: 20px; right: 20px; background: rgba(0,0,0,0.65); padding: 8px 12px; border-radius: 8px; font-size: 11px; color: #666; border: 1px solid rgba(255,255,255,0.08); }
+</style>
+</head>
+<body>
+<canvas id="canvas"></canvas>
+<div id="ui">
+  <h2>Global Space Launches<br>1957 – 2022</h2>
+  <div class="filter-group">
+    <label>Era</label>
+    <div class="btn-group" id="era-btns">
+      <button class="btn active" data-era="all">All</button>
+      <button class="btn" data-era="Cold War">Cold War</button>
+      <button class="btn" data-era="Post-Cold War">Post-Cold War</button>
+      <button class="btn" data-era="Early Commercial">Early Commercial</button>
+      <button class="btn" data-era="New Space">New Space</button>
+    </div>
+  </div>
+  <div class="filter-group">
+    <label>Bloc</label>
+    <div class="btn-group" id="bloc-btns">
+      <button class="btn active" data-bloc="all">All</button>
+      <button class="btn" data-bloc="Soviet/Russia">Soviet/Russia</button>
+      <button class="btn" data-bloc="US Government">US Gov.</button>
+      <button class="btn" data-bloc="US Commercial">US Commercial</button>
+      <button class="btn" data-bloc="China">China</button>
+      <button class="btn" data-bloc="Other">Other</button>
+    </div>
+  </div>
+</div>
+<div id="legend">
+  <h3>Dot Size = Launch Count</h3>
+  <div class="legend-item"><div class="legend-dot" style="width:8px;height:8px;background:#fff;opacity:0.8"></div> 1–50</div>
+  <div class="legend-item"><div class="legend-dot" style="width:14px;height:14px;background:#fff;opacity:0.8"></div> 51–200</div>
+  <div class="legend-item"><div class="legend-dot" style="width:20px;height:20px;background:#fff;opacity:0.8"></div> 200–500</div>
+  <div class="legend-item"><div class="legend-dot" style="width:26px;height:26px;background:#fff;opacity:0.8"></div> 500+</div>
+  <div style="margin-top:10px;border-top:1px solid rgba(255,255,255,0.1);padding-top:10px;">
+    <div class="legend-item"><div class="legend-dot" style="width:10px;height:10px;background:#E74C3C"></div> Soviet/Russia</div>
+    <div class="legend-item"><div class="legend-dot" style="width:10px;height:10px;background:#2471A3"></div> US Government</div>
+    <div class="legend-item"><div class="legend-dot" style="width:10px;height:10px;background:#85C1E9"></div> US Commercial</div>
+    <div class="legend-item"><div class="legend-dot" style="width:10px;height:10px;background:#E67E22"></div> China</div>
+    <div class="legend-item"><div class="legend-dot" style="width:10px;height:10px;background:#95A5A6"></div> Other</div>
+  </div>
+</div>
+<div id="info">🖱 Drag to rotate &nbsp;|&nbsp; Scroll to zoom<br>Hover over dots for details</div>
+<div id="debug">Loading data...</div>
+<div id="tooltip"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+const canvas = document.getElementById('canvas');
+const debug = document.getElementById('debug');
+let W = window.innerWidth, H = window.innerHeight;
+
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+renderer.setSize(W, H);
+renderer.setPixelRatio(window.devicePixelRatio);
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(45, W/H, 0.1, 1000);
+camera.position.set(0, 0, 2.8);
+
+scene.add(new THREE.AmbientLight(0xffffff, 0.5));
+const dl = new THREE.DirectionalLight(0xffffff, 0.8);
+dl.position.set(5,3,5); scene.add(dl);
+
+// Stars
+const sg = new THREE.BufferGeometry();
+const sv = [];
+for (let i=0;i<10000;i++) sv.push((Math.random()-.5)*500,(Math.random()-.5)*500,(Math.random()-.5)*500);
+sg.setAttribute('position', new THREE.Float32BufferAttribute(sv,3));
+scene.add(new THREE.Points(sg, new THREE.PointsMaterial({color:0xffffff,size:0.1,transparent:true,opacity:0.5})));
+
+// Globe
+const loader = new THREE.TextureLoader();
+const earthTex = loader.load('https://threejs.org/examples/textures/planets/earth_atmos_2048.jpg');
+const globe = new THREE.Mesh(
+  new THREE.SphereGeometry(1,64,64),
+  new THREE.MeshPhongMaterial({map:earthTex, specular:new THREE.Color(0x222222), shininess:6})
+);
+scene.add(globe);
+scene.add(new THREE.Mesh(
+  new THREE.SphereGeometry(1.02,64,64),
+  new THREE.MeshPhongMaterial({color:0x3366ff,transparent:true,opacity:0.05,side:THREE.FrontSide})
+));
+
+// bloc颜色（hex整数，直接给THREE.Color用）
+const blocHex = {
+  'Soviet/Russia': 0xE74C3C,
+  'US Government': 0x2471A3,
+  'US Commercial': 0x85C1E9,
+  'China':         0xE67E22,
+  'Joint Venture': 0x8E44AD,
+  'Other':         0x95A5A6,
+};
+
+function latLng3D(lat, lng, r=1.012) {
+  const phi = (90-lat)*Math.PI/180;
+  const theta = (lng+180)*Math.PI/180;
+  return new THREE.Vector3(
+    -r*Math.sin(phi)*Math.cos(theta),
+     r*Math.cos(phi),
+     r*Math.sin(phi)*Math.sin(theta)
+  );
+}
+
+function dotRadius(count) {
+  if (count<=50)  return 0.013;
+  if (count<=200) return 0.021;
+  if (count<=500) return 0.031;
+  return 0.046;
+}
+
+// 渐变贴图：白核 → bloc色 → 暗边，全不透明
+// CircleGeometry UV中心在(0.5,0.5)，径向映射正好匹配
+function makeCircleTex(hex) {
+  const size = 128, cv = document.createElement('canvas');
+  cv.width = cv.height = size;
+  const ctx = cv.getContext('2d');
+  const cx = size/2, r = size/2;
+  const c = new THREE.Color(hex);
+  const ri = Math.round(c.r*255), gi = Math.round(c.g*255), bi = Math.round(c.b*255);
+  // 暗化边缘色（×0.55）
+  const dr = Math.round(ri*0.55), dg = Math.round(gi*0.55), db = Math.round(bi*0.55);
+  const grd = ctx.createRadialGradient(cx,cx,0, cx,cx,r);
+  grd.addColorStop(0,    `rgb(255,255,255)`);          // 白核
+  grd.addColorStop(0.22, `rgb(255,255,255)`);          // 白核保持
+  grd.addColorStop(0.42, `rgb(${ri},${gi},${bi})`);   // bloc色
+  grd.addColorStop(0.78, `rgb(${ri},${gi},${bi})`);   // 保持bloc色
+  grd.addColorStop(1,    `rgb(${dr},${dg},${db})`);   // 暗边
+  ctx.fillStyle = grd;
+  ctx.fillRect(0,0,size,size);
+  return new THREE.CanvasTexture(cv);
+}
+
+const texCache = {};
+const geoCache = {};
+let spriteMeshes = [];
+const spriteGroup = new THREE.Group();
+scene.add(spriteGroup);
+
+function buildDots(records) {
+  while(spriteGroup.children.length) spriteGroup.remove(spriteGroup.children[0]);
+  spriteMeshes = [];
+
+  const siteMap = {};
+  records.forEach(r => {
+    if (!siteMap[r.site]) siteMap[r.site] = {lat:r.lat, lng:r.lng, count:0, blocs:{}};
+    siteMap[r.site].count += r.count;
+    siteMap[r.site].blocs[r.bloc] = (siteMap[r.site].blocs[r.bloc]||0) + r.count;
+  });
+
+  let built = 0;
+
+  Object.entries(siteMap).forEach(([site, info]) => {
+    const topBloc = Object.entries(info.blocs).sort((a,b)=>b[1]-a[1])[0][0];
+    const hex = blocHex[topBloc] || 0x95A5A6;
+
+    // 几何体按尺寸缓存（32段，边缘足够圆滑）
+    const rad = dotRadius(info.count);
+    const gk = rad.toString();
+    if (!geoCache[gk]) geoCache[gk] = new THREE.CircleGeometry(rad, 32);
+
+    // 贴图+材质按bloc缓存
+    if (!texCache[hex]) texCache[hex] = makeCircleTex(hex);
+    const mat = new THREE.MeshBasicMaterial({
+      map: texCache[hex],
+      depthWrite: false,
+      side: THREE.DoubleSide,
+    });
+
+    const mesh = new THREE.Mesh(geoCache[gk], mat);
+    const pos = latLng3D(info.lat, info.lng, 1.012);
+    mesh.position.copy(pos);
+    // 圆盘法线对齐球面径向
+    mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0,0,1), pos.clone().normalize());
+    mesh.userData = {site, count:info.count, blocs:info.blocs};
+    spriteGroup.add(mesh);
+    spriteMeshes.push(mesh);
+    built++;
+  });
+
+  debug.textContent = `${built} sites loaded`;
+}
+
+// ── Hardcoded fallback data ───────────────────────────────────────
+const FALLBACK = [
+  {site:'Plesetsk Cosmodrome, Russia',     era:'Cold War',         bloc:'Soviet/Russia',  count:1278, lat:62.93, lng:40.58},
+  {site:'Florida, USA',                    era:'Cold War',         bloc:'US Government',  count:911,  lat:28.57, lng:-80.65},
+  {site:'Baikonur Cosmodrome, Kazakhstan', era:'Cold War',         bloc:'Soviet/Russia',  count:719,  lat:45.92, lng:63.34},
+  {site:'California, USA',                 era:'Early Commercial', bloc:'US Commercial',  count:473,  lat:34.74, lng:-120.57},
+  {site:'French Guiana, France',           era:'Early Commercial', bloc:'Other',          count:314,  lat:5.24,  lng:-52.77},
+  {site:'Jiuquan, China',                  era:'New Space',        bloc:'China',          count:144,  lat:40.96, lng:100.30},
+  {site:'Xichang, China',                  era:'New Space',        bloc:'China',          count:130,  lat:28.25, lng:102.03},
+  {site:'Kapustin Yar, Russia',            era:'Cold War',         bloc:'Soviet/Russia',  count:112,  lat:48.57, lng:46.25},
+  {site:'Tanegashima, Japan',              era:'Early Commercial', bloc:'Other',          count:88,   lat:30.40, lng:130.98},
+  {site:'Satish Dhawan, India',            era:'Early Commercial', bloc:'Other',          count:82,   lat:13.73, lng:80.24},
+  {site:'Taiyuan, China',                  era:'New Space',        bloc:'China',          count:73,   lat:38.85, lng:111.61},
+  {site:'Virginia, USA',                   era:'New Space',        bloc:'US Commercial',  count:36,   lat:37.94, lng:-75.47},
+  {site:'Texas, USA',                      era:'New Space',        bloc:'US Commercial',  count:27,   lat:28.56, lng:-97.16},
+  {site:'Wenchang, China',                 era:'New Space',        bloc:'China',          count:18,   lat:19.61, lng:110.95},
+  {site:'Mahia Peninsula, New Zealand',    era:'New Space',        bloc:'Other',          count:28,   lat:-39.26, lng:177.86},
+  {site:'Semnan, Iran',                    era:'New Space',        bloc:'Other',          count:14,   lat:35.23, lng:53.92},
+  {site:'Vostochny, Russia',               era:'New Space',        bloc:'Soviet/Russia',  count:11,   lat:51.88, lng:128.33},
+  {site:'Palmachim, Israel',               era:'Early Commercial', bloc:'Other',          count:11,   lat:31.90, lng:34.69},
+  {site:'San Marco, Kenya',                era:'Cold War',         bloc:'Other',          count:9,    lat:-2.94, lng:40.21},
+  {site:'Uchinoura, Japan',                era:'Early Commercial', bloc:'Other',          count:42,   lat:31.25, lng:131.08},
+  {site:'Kiritimati, Pacific Ocean',       era:'Early Commercial', bloc:'Other',          count:36,   lat:1.87,  lng:-157.43},
+  {site:'Woomera, Australia',              era:'Cold War',         bloc:'Other',          count:6,    lat:-31.16, lng:136.82},
+  {site:'Yasny, Russia',                   era:'Early Commercial', bloc:'Soviet/Russia',  count:10,   lat:51.21, lng:59.85},
+];
+
+let currentEra='all', currentBloc='all', rawData=null;
+
+function applyFilter() {
+  const src = rawData ? rawData.records : FALLBACK;
+  let f = src;
+  if (currentEra!=='all')  f = f.filter(r=>r.era===currentEra);
+  if (currentBloc!=='all') f = f.filter(r=>r.bloc===currentBloc);
+  buildDots(f);
+}
+
+fetch('launch_data.json')
+  .then(r => { if (!r.ok) throw new Error('not found'); return r.json(); })
+  .then(data => {
+    rawData = data;
+    debug.textContent = Object.keys(data.sites).length + ' sites loaded';
+    buildDots(data.records);
+  })
+  .catch(err => {
+    debug.textContent = 'Error: ' + err.message;
+  });
+
+document.querySelectorAll('#era-btns .btn').forEach(btn=>{
+  btn.addEventListener('click',()=>{
+    document.querySelectorAll('#era-btns .btn').forEach(b=>b.classList.remove('active'));
+    btn.classList.add('active'); currentEra=btn.dataset.era; applyFilter();
+  });
+});
+document.querySelectorAll('#bloc-btns .btn').forEach(btn=>{
+  btn.addEventListener('click',()=>{
+    document.querySelectorAll('#bloc-btns .btn').forEach(b=>b.classList.remove('active'));
+    btn.classList.add('active'); currentBloc=btn.dataset.bloc; applyFilter();
+  });
+});
+
+// Orbit controls
+let isDragging=false, prevX=0, prevY=0, rotX=0.2, rotY=0;
+canvas.addEventListener('mousedown',e=>{isDragging=true;prevX=e.clientX;prevY=e.clientY;canvas.style.cursor='grabbing';});
+canvas.addEventListener('mouseup',()=>{isDragging=false;canvas.style.cursor='grab';});
+canvas.addEventListener('mouseleave',()=>isDragging=false);
+canvas.addEventListener('mousemove',e=>{
+  if(isDragging){
+    rotY+=(e.clientX-prevX)*0.005;
+    rotX+=(e.clientY-prevY)*0.005;
+    rotX=Math.max(-1.2,Math.min(1.2,rotX));
+    prevX=e.clientX; prevY=e.clientY;
+  }
+  checkHover(e);
+});
+canvas.addEventListener('wheel',e=>{
+  e.preventDefault();
+  camera.position.z=Math.max(1.4,Math.min(6,camera.position.z+e.deltaY*0.003));
+},{passive:false});
+
+// Tooltip & raycasting
+const tooltip=document.getElementById('tooltip');
+const raycaster=new THREE.Raycaster();
+const mouse=new THREE.Vector2();
+
+function checkHover(e){
+  mouse.x=(e.clientX/W)*2-1;
+  mouse.y=-(e.clientY/H)*2+1;
+  raycaster.setFromCamera(mouse,camera);
+  const hits=raycaster.intersectObjects(spriteMeshes);
+  if(hits.length>0&&hits[0].object.userData.site){
+    const d=hits[0].object.userData;
+    const bl=Object.entries(d.blocs).sort((a,b)=>b[1]-a[1]).slice(0,5)
+      .map(([b,c])=>`${b}: ${c}`).join('<br>');
+    tooltip.innerHTML=`<strong>${d.site}</strong><span>${d.count} total launches<br>${bl}</span>`;
+    tooltip.style.display='block';
+    tooltip.style.left=(e.clientX+16)+'px';
+    tooltip.style.top=(e.clientY-10)+'px';
+    if(!isDragging) canvas.style.cursor='pointer';
+  } else {
+    tooltip.style.display='none';
+    if(!isDragging) canvas.style.cursor='grab';
+  }
+}
+
+function animate(){
+  requestAnimationFrame(animate);
+  globe.rotation.x=rotX; globe.rotation.y=rotY;
+  spriteGroup.rotation.x=rotX; spriteGroup.rotation.y=rotY;
+  if(!isDragging) rotY+=0.0005;
+  renderer.render(scene,camera);
+}
+animate();
+
+window.addEventListener('resize',()=>{
+  W=window.innerWidth; H=window.innerHeight;
+  camera.aspect=W/H; camera.updateProjectionMatrix();
+  renderer.setSize(W,H);
+});
+</script>
+</body>
+</html>

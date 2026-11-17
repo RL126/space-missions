@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Demo: Coordinate Transformation</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #050510; overflow: hidden; font-family: Arial, sans-serif; }
+  #info {
+    position: absolute; top: 20px; left: 20px;
+    background: rgba(0,0,0,0.8); padding: 14px 18px;
+    border-radius: 10px; border: 1px solid rgba(255,255,255,0.1);
+    color: #fff; font-size: 12px; line-height: 1.8;
+    max-width: 300px;
+  }
+  #info h2 { font-size: 13px; color: #aaa; margin-bottom: 8px; }
+  #info .formula { 
+    background: rgba(255,255,255,0.05); 
+    padding: 8px 10px; border-radius: 6px;
+    font-size: 11px; color: #7ec8e3; 
+    margin: 8px 0; line-height: 2;
+    border-left: 2px solid #3366ff;
+  }
+  #info .label { color: #888; font-size: 11px; }
+  #info .value { color: #e8a87c; font-size: 11px; }
+  #tooltip {
+    position: absolute; background: rgba(5,5,20,0.92);
+    padding: 8px 12px; border-radius: 8px; font-size: 11px;
+    pointer-events: none; display: none;
+    border: 1px solid rgba(255,255,255,0.15); color: #fff;
+  }
+  #info .hint { color: #555; font-size: 10px; margin-top: 8px; }
+</style>
+</head>
+<body>
+<canvas id="canvas"></canvas>
+
+<div id="info">
+  <h2>Demo: 经纬度 → 3D球面坐标变换</h2>
+  <div class="formula">
+    φ = (90° − lat) × π/180<br>
+    θ = (lng + 180°) × π/180<br>
+    x = −r·sin(φ)·cos(θ)<br>
+    y =  r·cos(φ)<br>
+    z =  r·sin(φ)·sin(θ)
+  </div>
+  <div><span class="label">圆盘法线：</span><span class="value">quaternion.setFromUnitVectors</span></div>
+  <div><span class="label">圆盘半径：</span><span class="value">按发射次数分4级映射</span></div>
+  <div class="hint">🖱 拖拽旋转 | 滚轮缩放 | 悬停查看坐标</div>
+</div>
+
+<div id="tooltip"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+const canvas  = document.getElementById('canvas');
+const tooltip = document.getElementById('tooltip');
+let W = window.innerWidth, H = window.innerHeight;
+
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+renderer.setSize(W, H);
+renderer.setPixelRatio(window.devicePixelRatio);
+
+const scene  = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(45, W/H, 0.1, 1000);
+camera.position.set(0, 0, 3);
+
+scene.add(new THREE.AmbientLight(0xffffff, 0.5));
+const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+dirLight.position.set(5, 3, 5);
+scene.add(dirLight);
+
+// 地球
+const loader = new THREE.TextureLoader();
+const globe  = new THREE.Mesh(
+  new THREE.SphereGeometry(1, 64, 64),
+  new THREE.MeshPhongMaterial({
+    map: loader.load('https://threejs.org/examples/textures/planets/earth_atmos_2048.jpg'),
+    specular: new THREE.Color(0x222222), shininess: 6,
+  })
+);
+scene.add(globe);
+
+// ── 核心函数：经纬度 → 3D坐标 ────────────────────────────────────
+function latLng3D(lat, lng, r = 1.012) {
+  const phi   = (90 - lat) * Math.PI / 180;   // 极角
+  const theta = (lng + 180) * Math.PI / 180;  // 方位角
+  return new THREE.Vector3(
+    -r * Math.sin(phi) * Math.cos(theta),      // x
+     r * Math.cos(phi),                         // y
+     r * Math.sin(phi) * Math.sin(theta)        // z
+  );
+}
+
+// ── 发射场数据（精选8个有代表性的站点）──────────────────────────
+const SITES = [
+  { name: 'Plesetsk, Russia',      lat: 62.93,  lng: 40.58,   count: 1278, color: 0xE74C3C },
+  { name: 'Florida, USA',          lat: 28.57,  lng: -80.65,  count: 911,  color: 0x2471A3 },
+  { name: 'Baikonur, Kazakhstan',  lat: 45.92,  lng: 63.34,   count: 719,  color: 0xE74C3C },
+  { name: 'California, USA',       lat: 34.74,  lng: -120.57, count: 473,  color: 0x85C1E9 },
+  { name: 'French Guiana',         lat: 5.24,   lng: -52.77,  count: 314,  color: 0x95A5A6 },
+  { name: 'Jiuquan, China',        lat: 40.96,  lng: 100.30,  count: 144,  color: 0xE67E22 },
+  { name: 'Xichang, China',        lat: 28.25,  lng: 102.03,  count: 130,  color: 0xE67E22 },
+  { name: 'Satish Dhawan, India',  lat: 13.73,  lng: 80.24,   count: 82,   color: 0x95A5A6 },
+];
+
+function dotRadius(count) {
+  if (count <= 50)  return 0.013;
+  if (count <= 200) return 0.021;
+  if (count <= 500) return 0.031;
+  return 0.046;
+}
+
+// 为每个站点生成渐变贴图
+function makeCircleTex(hex) {
+  const size = 128, cv = document.createElement('canvas');
+  cv.width = cv.height = size;
+  const ctx = cv.getContext('2d');
+  const cx = size/2, r = size/2;
+  const c = new THREE.Color(hex);
+  const ri = Math.round(c.r*255), gi = Math.round(c.g*255), bi = Math.round(c.b*255);
+  const dr = Math.round(ri*0.55), dg = Math.round(gi*0.55), db = Math.round(bi*0.55);
+  const grd = ctx.createRadialGradient(cx,cx,0, cx,cx,r);
+  grd.addColorStop(0,    `rgb(255,255,255)`);
+  grd.addColorStop(0.22, `rgb(255,255,255)`);
+  grd.addColorStop(0.42, `rgb(${ri},${gi},${bi})`);
+  grd.addColorStop(0.78, `rgb(${ri},${gi},${bi})`);
+  grd.addColorStop(1,    `rgb(${dr},${dg},${db})`);
+  ctx.fillStyle = grd;
+  ctx.fillRect(0,0,size,size);
+  return new THREE.CanvasTexture(cv);
+}
+
+// ── 创建圆盘并放置到球面 ──────────────────────────────────────────
+const dotGroup   = new THREE.Group();
+const dotMeshes  = [];
+const texCache   = {};
+const geoCache   = {};
+
+SITES.forEach(site => {
+  // 1. 计算球面坐标
+  const pos = latLng3D(site.lat, site.lng, 1.012);
+
+  // 2. 贴图 & 材质
+  if (!texCache[site.color]) texCache[site.color] = makeCircleTex(site.color);
+  const mat = new THREE.MeshBasicMaterial({
+    map: texCache[site.color],
+    depthWrite: false,
+    side: THREE.DoubleSide,
+  });
+
+  // 3. 几何体
+  const rad = dotRadius(site.count);
+  const gk  = rad.toString();
+  if (!geoCache[gk]) geoCache[gk] = new THREE.CircleGeometry(rad, 32);
+
+  const mesh = new THREE.Mesh(geoCache[gk], mat);
+  mesh.position.copy(pos);
+
+  // 4. 法线对齐：圆盘+Z轴旋转到径向方向
+  mesh.quaternion.setFromUnitVectors(
+    new THREE.Vector3(0, 0, 1),
+    pos.clone().normalize()
+  );
+
+  mesh.userData = { name: site.name, lat: site.lat, lng: site.lng,
+                    count: site.count, pos3d: pos };
+  dotGroup.add(mesh);
+  dotMeshes.push(mesh);
+});
+
+scene.add(dotGroup);
+
+// ── 经纬度网格线（辅助理解坐标系）───────────────────────────────
+const gridMat = new THREE.LineBasicMaterial({ color: 0x223344, transparent: true, opacity: 0.4 });
+
+// 经线（每30°一条）
+for (let lng = -180; lng < 180; lng += 30) {
+  const pts = [];
+  for (let lat = -90; lat <= 90; lat += 2) {
+    pts.push(latLng3D(lat, lng, 1.001));
+  }
+  const geo = new THREE.BufferGeometry().setFromPoints(pts);
+  scene.add(new THREE.Line(geo, gridMat));
+}
+// 纬线（每30°一条）
+for (let lat = -60; lat <= 60; lat += 30) {
+  const pts = [];
+  for (let lng = -180; lng <= 180; lng += 2) {
+    pts.push(latLng3D(lat, lng, 1.001));
+  }
+  const geo = new THREE.BufferGeometry().setFromPoints(pts);
+  scene.add(new THREE.Line(geo, gridMat));
+}
+
+// ── Raycaster hover ───────────────────────────────────────────────
+const raycaster = new THREE.Raycaster();
+const mouse     = new THREE.Vector2();
+
+function checkHover(e) {
+  mouse.x =  (e.clientX / W) * 2 - 1;
+  mouse.y = -(e.clientY / H) * 2 + 1;
+  raycaster.setFromCamera(mouse, camera);
+  const hits = raycaster.intersectObjects(dotMeshes);
+  if (hits.length > 0) {
+    const d = hits[0].object.userData;
+    tooltip.innerHTML =
+      `<strong>${d.name}</strong><br>` +
+      `lat: ${d.lat}°, lng: ${d.lng}°<br>` +
+      `x: ${d.pos3d.x.toFixed(3)}, y: ${d.pos3d.y.toFixed(3)}, z: ${d.pos3d.z.toFixed(3)}<br>` +
+      `launches: ${d.count}`;
+    tooltip.style.display = 'block';
+    tooltip.style.left = (e.clientX + 14) + 'px';
+    tooltip.style.top  = (e.clientY - 10) + 'px';
+  } else {
+    tooltip.style.display = 'none';
+  }
+}
+
+// ── 旋转控制 ──────────────────────────────────────────────────────
+let isDragging = false, prevX = 0, prevY = 0, rotX = 0.3, rotY = -0.5;
+canvas.addEventListener('mousedown', e => { isDragging=true; prevX=e.clientX; prevY=e.clientY; });
+canvas.addEventListener('mouseup',   () => isDragging=false);
+canvas.addEventListener('mousemove', e => {
+  if (isDragging) {
+    rotY += (e.clientX-prevX)*0.005;
+    rotX  = Math.max(-1.2, Math.min(1.2, rotX+(e.clientY-prevY)*0.005));
+    prevX=e.clientX; prevY=e.clientY;
+  }
+  checkHover(e);
+});
+canvas.addEventListener('wheel', e => {
+  e.preventDefault();
+  camera.position.z = Math.max(1.5, Math.min(8, camera.position.z+e.deltaY*0.003));
+}, { passive: false });
+
+function animate() {
+  requestAnimationFrame(animate);
+  globe.rotation.x     = dotGroup.rotation.x = rotX;
+  globe.rotation.y     = dotGroup.rotation.y = rotY;
+  if (!isDragging) rotY += 0.002;
+  renderer.render(scene, camera);
+}
+animate();
+
+window.addEventListener('resize', () => {
+  W=window.innerWidth; H=window.innerHeight;
+  camera.aspect=W/H; camera.updateProjectionMatrix();
+  renderer.setSize(W,H);
+});
+</script>
+</body>
+</html>

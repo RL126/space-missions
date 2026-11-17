@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Spherical Coordinates</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #050510; overflow: hidden; font-family: Arial, sans-serif; }
+  #formula {
+    position: absolute; top: 20px; left: 20px;
+    background: rgba(0,0,0,0.8); padding: 14px 18px;
+    border-radius: 10px; border: 1px solid rgba(255,255,255,0.1);
+    color: #fff; font-size: 12px; line-height: 2.2;
+  }
+  #formula h2 { font-size: 13px; color: #aaa; margin-bottom: 8px; }
+  #legend {
+    position: absolute; top: 20px; right: 20px;
+    background: rgba(0,0,0,0.8); padding: 14px 18px;
+    border-radius: 10px; border: 1px solid rgba(255,255,255,0.1);
+    font-size: 11px; line-height: 2;
+  }
+  .leg { display: flex; align-items: center; gap: 8px; color: #ccc; }
+  .bar { width: 24px; height: 3px; border-radius: 2px; }
+</style>
+</head>
+<body>
+<canvas id="canvas"></canvas>
+
+<div id="formula">
+  <h2>球坐标系转换原理</h2>
+  <span style="color:#ffff00">φ</span> = (90° − lat) × π/180<br>
+  <span style="color:#ff8800">θ</span> = (lng + 180°) × π/180<br>
+  <span style="color:#ff4444">x</span> = −r · sin(φ) · cos(θ)<br>
+  <span style="color:#44ff44">y</span> = &nbsp;r · cos(φ)<br>
+  <span style="color:#4488ff">z</span> = &nbsp;r · sin(φ) · sin(θ)<br>
+  <span style="color:#555; font-size:10px;">🖱 拖拽旋转 | 滚轮缩放</span>
+</div>
+
+<div id="legend">
+  <div class="leg"><div class="bar" style="background:#ff4444"></div> X 轴</div>
+  <div class="leg"><div class="bar" style="background:#44ff44"></div> Y 轴（北极）</div>
+  <div class="leg"><div class="bar" style="background:#4488ff"></div> Z 轴</div>
+  <div class="leg"><div class="bar" style="background:#ffff00"></div> 极角 φ</div>
+  <div class="leg"><div class="bar" style="background:#ff8800"></div> 方位角 θ</div>
+  <div class="leg"><div class="bar" style="background:#aaaaaa"></div> 径向向量 r</div>
+  <div class="leg"><div class="bar" style="background:#ffffff; height:8px; border-radius:50%; width:8px"></div> 点 P (lat, lng)</div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+const canvas = document.getElementById('canvas');
+let W = window.innerWidth, H = window.innerHeight;
+
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+renderer.setSize(W, H);
+renderer.setPixelRatio(window.devicePixelRatio);
+
+const scene  = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(45, W/H, 0.1, 1000);
+camera.position.set(0, 0, 4);
+scene.add(new THREE.AmbientLight(0xffffff, 1));
+
+// ── 工具函数 ──────────────────────────────────────────────────────
+function makeLine(p1, p2, color) {
+  const geo = new THREE.BufferGeometry().setFromPoints([p1, p2]);
+  return new THREE.Line(geo, new THREE.LineBasicMaterial({ color }));
+}
+
+function makeArc(r, axis1, axis2, a0, a1, color, n=48) {
+  const pts = [];
+  for (let i = 0; i <= n; i++) {
+    const a = a0 + (a1 - a0) * i / n;
+    pts.push(new THREE.Vector3(
+      r * (Math.cos(a)*axis1.x + Math.sin(a)*axis2.x),
+      r * (Math.cos(a)*axis1.y + Math.sin(a)*axis2.y),
+      r * (Math.cos(a)*axis1.z + Math.sin(a)*axis2.z),
+    ));
+  }
+  return new THREE.Line(
+    new THREE.BufferGeometry().setFromPoints(pts),
+    new THREE.LineBasicMaterial({ color })
+  );
+}
+
+function makeDot(pos, color, r=0.04) {
+  const m = new THREE.Mesh(
+    new THREE.SphereGeometry(r, 16, 16),
+    new THREE.MeshBasicMaterial({ color })
+  );
+  m.position.copy(pos);
+  return m;
+}
+
+function latLng(lat, lng, r=1) {
+  const phi   = (90-lat)*Math.PI/180;
+  const theta = (lng+180)*Math.PI/180;
+  return new THREE.Vector3(
+    -r*Math.sin(phi)*Math.cos(theta),
+     r*Math.cos(phi),
+     r*Math.sin(phi)*Math.sin(theta)
+  );
+}
+
+// ── 半透明球体 ────────────────────────────────────────────────────
+scene.add(new THREE.Mesh(
+  new THREE.SphereGeometry(1, 32, 32),
+  new THREE.MeshBasicMaterial({
+    color: 0x112233, transparent: true, opacity: 0.18,
+    side: THREE.DoubleSide
+  })
+));
+// 线框
+scene.add(new THREE.Mesh(
+  new THREE.SphereGeometry(1, 12, 12),
+  new THREE.MeshBasicMaterial({
+    color: 0x224466, wireframe: true, transparent: true, opacity: 0.12
+  })
+));
+
+// ── 坐标轴 ────────────────────────────────────────────────────────
+const O = new THREE.Vector3(0,0,0);
+const AX = 1.5;
+scene.add(makeLine(O, new THREE.Vector3( AX,  0,  0), 0xff4444)); // X
+scene.add(makeLine(O, new THREE.Vector3(  0, AX,  0), 0x44ff44)); // Y
+scene.add(makeLine(O, new THREE.Vector3(  0,  0, AX), 0x4488ff)); // Z
+
+// 轴标签小球
+scene.add(makeDot(new THREE.Vector3(AX+0.05,0,0), 0xff4444, 0.02));
+scene.add(makeDot(new THREE.Vector3(0,AX+0.05,0), 0x44ff44, 0.02));
+scene.add(makeDot(new THREE.Vector3(0,0,AX+0.05), 0x4488ff, 0.02));
+
+// ── 示例点 P：lat=45°, lng=45° ───────────────────────────────────
+const LAT = 45, LNG = 45;
+const phi   = (90-LAT)*Math.PI/180;
+const theta = (LNG+180)*Math.PI/180;
+const P = latLng(LAT, LNG, 1.0);
+
+// 径向向量 r
+scene.add(makeLine(O, P, 0xaaaaaa));
+
+// 点P
+scene.add(makeDot(P, 0xffffff, 0.06));
+
+// ── 极角 φ：Y轴 → P，在Y轴和P所在平面内 ─────────────────────────
+const yAxis  = new THREE.Vector3(0,1,0);
+const Pn     = P.clone().normalize();
+const perp   = new THREE.Vector3().crossVectors(yAxis, Pn).normalize();
+scene.add(makeArc(0.45, yAxis, perp, 0, phi, 0xffff00));
+// φ 端点小球
+scene.add(makeDot(new THREE.Vector3(
+  0.45*(Math.cos(phi)*yAxis.x + Math.sin(phi)*perp.x),
+  0.45*(Math.cos(phi)*yAxis.y + Math.sin(phi)*perp.y),
+  0.45*(Math.cos(phi)*yAxis.z + Math.sin(phi)*perp.z),
+), 0xffff00, 0.018));
+
+// ── 方位角 θ：在赤道（XZ）平面，从-X轴旋转 ──────────────────────
+const negX = new THREE.Vector3(-1,0,0);
+const posZ = new THREE.Vector3(0,0,1);
+scene.add(makeArc(0.6, negX, posZ, 0, theta, 0xff8800));
+// θ 端点
+scene.add(makeDot(new THREE.Vector3(
+  0.6*(Math.cos(theta)*negX.x + Math.sin(theta)*posZ.x),
+  0,
+  0.6*(Math.cos(theta)*negX.z + Math.sin(theta)*posZ.z),
+), 0xff8800, 0.018));
+
+// 赤道面辅助线（P在XZ平面的投影）
+const Pground = new THREE.Vector3(P.x, 0, P.z);
+scene.add(makeLine(O, Pground, 0xff8800));
+scene.add(makeLine(Pground, P, 0x555555));  // 垂直辅助线
+
+// ── 旋转控制 ──────────────────────────────────────────────────────
+const group = new THREE.Group();
+while (scene.children.length) group.add(scene.children[0]);
+scene.add(group);
+
+let isDragging=false, prevX=0, prevY=0, rotX=0.35, rotY=0.5;
+canvas.addEventListener('mousedown', e=>{isDragging=true;prevX=e.clientX;prevY=e.clientY;});
+canvas.addEventListener('mouseup',   ()=>isDragging=false);
+canvas.addEventListener('mousemove', e=>{
+  if(!isDragging) return;
+  rotY+=(e.clientX-prevX)*0.005;
+  rotX=Math.max(-1.2,Math.min(1.2,rotX+(e.clientY-prevY)*0.005));
+  prevX=e.clientX; prevY=e.clientY;
+});
+canvas.addEventListener('wheel', e=>{
+  e.preventDefault();
+  camera.position.z=Math.max(2,Math.min(10,camera.position.z+e.deltaY*0.003));
+},{passive:false});
+
+(function animate(){
+  requestAnimationFrame(animate);
+  group.rotation.x=rotX;
+  group.rotation.y=rotY;
+  renderer.render(scene,camera);
+})();
+
+window.addEventListener('resize',()=>{
+  W=window.innerWidth; H=window.innerHeight;
+  camera.aspect=W/H; camera.updateProjectionMatrix();
+  renderer.setSize(W,H);
+});
+</script>
+</body>
+</html>
