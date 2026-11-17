@@ -18,7 +18,7 @@ launches climbed to almost 150 in 2022.
 
 ## Data and cleaning
 
-The data is the Space Missions (1957–2022) dataset from Kaggle. Each row is one
+The data is the Space Missions (1957–2022) dataset from Kaggle( https://www.kaggle.com/datasets/saikat026/space-missions). Each row is one
 launch, with the company, rocket, launch site, date, mission status and price.
 I parsed the dates, turned the price column into numbers (anything that could
 not be parsed is left missing), and took the country from the end of the
